@@ -1,0 +1,40 @@
+#!/bin/bash
+
+#IP Check Script
+
+domains=('domain1' 'domain2' 'domain3')
+
+echo "Checking current IP for $dName" 
+ipCur=$(curl -s https://api.ipify.org)
+echo "Current IP address for $dName is: $ipCur"
+
+for dName in "${domains[@]}"
+do
+	echo "Pulling current IP in DNS record. Please wait."
+	dnsResult=$(curl -s --request GET \
+		--url https://api.cloudflare.com/client/v4/zones/"$dName"/dns_records?type="A" \
+		-H 'Content-Type: application/json' \
+		-H 'Authorization: Bearer BEARER_TOKEN')
+	dnsIP=$(jq -r '.result[0] .content' <<< "$dnsResult")
+	dnsName=$(jq -r '.result[0] .name' <<< "$dnsResult")
+	ident=$(jq -r '.result[0] .id' <<< "$dnsResult")
+	echo "Current DNS record for $dnsName is: $dnsIP"
+	#echo "$ident"
+	if [ "$ipCur" == "$dnsIP" ]
+	then
+		echo "IP match."
+	else
+		echo "IP mismatch: Records updating."
+		$(curl -s --request PATCH \
+			--url https://api.cloudflare.com/client/v4/zones/"$dName"/dns_records/"$ident" \
+			-H 'Content-Type: application/json' \
+			-H 'Authorization: Bearer BEARER_TOKEN' \
+			-d '{
+			"content": "'"$ipCur"'",
+			"name":"@",
+			"ttl": 1
+			}'>/dev/null)
+		echo "Records have been updated."
+	fi
+done
+echo "All records are correct."
